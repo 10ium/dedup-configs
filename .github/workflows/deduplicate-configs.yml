@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+# --- <<<< این بخش بسیار مهم است >>>> ---
+permissions:
+  contents: write # به گردش کار اجازه می‌دهد محتوا را بنویسد (کامیت و پوش کند)
+
 env:
   OUTPUT_DIR: output_configs
 
@@ -25,11 +29,24 @@ jobs:
         run: pip install requests PyYAML
 
       - name: Check for urls.txt
-        # ... (as before) ...
+        id: check_urls
+        run: |
+          if [ ! -s urls.txt ]; then
+            echo "urls.txt is missing or empty"
+            exit 1
+          fi
+
       - name: Check for defaults.yaml
-        # ... (as before) ...
+        run: |
+          if [ ! -f defaults.yaml ]; then
+            echo "defaults.yaml is missing, proceeding without it (script might fail)."
+            # exit 1 # اگر می‌خواهید حتما وجود داشته باشد، این خط را فعال کنید
+          fi
+
       - name: Clean output directory
-        # ... (as before) ...
+        run: |
+          rm -rf ${{ env.OUTPUT_DIR }}
+          mkdir -p ${{ env.OUTPUT_DIR }}
 
       - name: Run generation script
         run: |
@@ -38,9 +55,51 @@ jobs:
             --defaults defaults.yaml \
             --output-dir ${{ env.OUTPUT_DIR }}
 
-      - name: Check for changes
-        # ... (as before) ...
-      - name: Update README.md (Optional)
-        # ... (as before) ...
-      - name: Commit and push changes
-        # ... (as before) ...
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Check for changes & Stage
+        id: check_changes
+        run: |
+          git add ${{ env.OUTPUT_DIR }}
+          if ! git diff --staged --quiet; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes in output directory."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update README.md and Stage (If changes occurred)
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          README_FILE="README.md"
+          GENERATED_OUTPUTS_HEADER="## Generated Outputs"
+          DIR_LINK_IDENTIFIER="Individual URL outputs"
+          NEW_DIR_ENTRY="- \`${{ env.OUTPUT_DIR }}\` (${DIR_LINK_IDENTIFIER}): ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}/${{ env.OUTPUT_DIR }}"
+
+          # Create header if it doesn't exist
+          if ! grep -q "$GENERATED_OUTPUTS_HEADER" "$README_FILE"; then
+            echo -e "\n$GENERATED_OUTPUTS_HEADER\n" >> "$README_FILE"
+          fi
+
+          # Remove old line (if exists) then add new one
+          sed -i "\#${DIR_LINK_IDENTIFIER}#d" "$README_FILE"
+          sed -i "/$GENERATED_OUTPUTS_HEADER/a\\$NEW_DIR_ENTRY" "$README_FILE"
+          git add README.md
+
+      - name: Commit and push changes (If changes occurred)
+        # We run this if the *initial* check found changes.
+        # It will only commit if files (output_dir or README) are actually staged.
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          # Add all potential changes again to be absolutely sure
+          git add ${{ env.OUTPUT_DIR }} README.md
+          # Check if there are *actually* changes staged now
+          if ! git diff --staged --quiet; then
+            git commit -m "Automated config generation: smart deduplication"
+            git push
+          else
+             echo "No net changes to commit (maybe only README existed, or an error occurred)."
+          fi
