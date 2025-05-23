@@ -1,0 +1,10 @@
+shadowsocks:
+  method: aes-128-gcm
+shadowssr:
+  protocol: origin
+  obfs: plain
+trojan:
+  sni: ""
+vless:
+  flow: ""
+  encryption: auto
