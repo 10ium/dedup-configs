@@ -62,24 +62,19 @@ jobs:
       - name: Check for changes & Stage Output Dir
         id: check_changes
         run: |
-          # Add only output dir first to see if script generated anything
           git add ${{ env.OUTPUT_DIR }}
-          # Check if anything was added/changed. Use --exit-code to set status.
-          git diff --staged --quiet --exit-code
-          if [ $? -ne 0 ]; then
-            echo "Changes found in output directory."
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
+          # Check if git add actually staged anything
+          if git diff --staged --quiet; then
             echo "No changes in output directory."
             echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes found in output directory."
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
-        # Continue even if no changes, so README can be checked/fixed if needed
-        continue-on-error: true # Might be needed if git diff fails when nothing is added
 
-      - name: Update README.md (If changes occurred or markers need fixing)
+      - name: Update README.md (If changes occurred)
         id: update_readme
-        # Always run this step to ensure README is correct, but only stage if changed.
-        # We will check if changes *actually* happened before committing.
+        if: steps.check_changes.outputs.changed == 'true'
         run: |
           README_FILE="README.md"
           OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
@@ -93,8 +88,7 @@ jobs:
           # 1. Generate new list
           echo "" > "$TEMP_LIST" # Clear or create file
           file_count=0
-          # Find all *files* in the output directory and sort them.
-          if [ -d "$OUTPUT_DIR" ]; then # Check if dir exists
+          if [ -d "$OUTPUT_DIR" ]; then
             for file in $(find "$OUTPUT_DIR" -type f | sort); do
                 filename=$(basename "$file")
                 echo "- \`$filename\`: $REPO_URL/$file" >> "$TEMP_LIST"
@@ -102,17 +96,21 @@ jobs:
             done
           fi
 
-          # 2. Ensure README exists
-          touch "$README_FILE"
+          # 2. Check if list is empty
+          if [ $file_count -eq 0 ]; then
+              echo "No output files found, not updating README."
+              exit 0
+          fi
 
-          # 3. Ensure header & markers
+          # 3. Ensure README exists & has header/markers
+          touch "$README_FILE"
           if ! grep -Fq "$HEADER" "$README_FILE"; then
               echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
           elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
-              sed -i "/^$HEADER\$/a $START_MARKER\n$END_MARKER" "$README_FILE"; README_CHANGED=true
+              sed -i "/^${HEADER//\//\\/}\$/a ${START_MARKER//\//\\/}\n${END_MARKER//\//\\/}" "$README_FILE"; README_CHANGED=true
           fi
 
-          # 4. Define AWK script (safer way)
+          # 4. Define AWK script for deletion
           AWK_DELETE_SCRIPT='
           BEGIN { in_block=0 }
           $0 == end_marker   { print; in_block=0; next }
@@ -122,10 +120,8 @@ jobs:
           # Run AWK, use temp file
           awk -v start="$START_MARKER" -v end="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
 
-          # 5. Insert new list into temp file (only if files exist)
-          if [ $file_count -gt 0 ]; then
-              sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
-          fi
+          # 5. Insert new list into temp file (using sed - /r should be safe)
+          sed -i "/${START_MARKER//\//\\/}/r $TEMP_LIST" "$README_FILE.tmp"
 
           # 6. Check if README.md has changed *before* overwriting
           if ! cmp -s "$README_FILE" "$README_FILE.tmp"; then
@@ -143,11 +139,9 @@ jobs:
           fi
 
       - name: Commit and push changes
-        # Run if EITHER output_configs changed OR README changed (we check staged files)
+        if: steps.check_changes.outputs.changed == 'true'
         run: |
-          # Add all potential changes (again) before final check
           git add ${{ env.OUTPUT_DIR }} README.md
-          # Check if there are *actually* changes staged now
           if ! git diff --staged --quiet; then
             git commit -m "Automated config generation: update outputs"
             git push
