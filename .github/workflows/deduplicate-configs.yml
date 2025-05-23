@@ -1,0 +1,68 @@
+name: Deduplicate Configs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deduplicate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests PyYAML
+
+      - name: Check for urls.txt
+        id: check_urls
+        run: |
+          if [ ! -s urls.txt ]; then
+            echo "urls.txt is missing or empty"
+            exit 1
+          fi
+
+      - name: Run deduplicate script
+        run: python scripts/deduplicate.py --input urls.txt --defaults defaults.yaml --output deduped-configs.json
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git add deduped-configs.json
+          if git diff --staged --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update README.md
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          OUTPUT_FILE="deduped-configs.json"
+          README_FILE="README.md"
+          GENERATED_OUTPUTS_HEADER="## Generated Outputs"
+          NEW_ENTRY="- \`${OUTPUT_FILE}\`: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/${OUTPUT_FILE}"
+
+          if ! grep -q "$GENERATED_OUTPUTS_HEADER" "$README_FILE"; then
+            echo -e "\n$GENERATED_OUTPUTS_HEADER\n" >> "$README_FILE"
+          fi
+
+          if ! grep -q "$NEW_ENTRY" "$README_FILE"; then
+            sed -i "/$GENERATED_OUTPUTS_HEADER/a\\$NEW_ENTRY" "$README_FILE"
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m "Automated deduplication: update configs"
+          git push
