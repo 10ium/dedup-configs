@@ -61,7 +61,6 @@ jobs:
       - name: Check for changes & Stage Output Dir
         id: check_changes
         run: |
-          # Add only output dir first to see if script generated anything
           git add ${{ env.OUTPUT_DIR }}
           if ! git diff --staged --quiet; then
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -85,50 +84,34 @@ jobs:
           # 1. Generate new list
           echo "" > "$TEMP_LIST" # Clear or create file
           file_count=0
-          for file in $(find "$OUTPUT_DIR" -type f -name "*.txt" | sort); do
+          for file in $(find "$OUTPUT_DIR" -type f | sort); do
               filename=$(basename "$file")
-              echo "- \`$filename\`: $REPO_URL/$file" >> "$TEMP_LIST"
-              file_count=$((file_count + 1))
+              # We now save all files found, not just .txt
+              echo "- \`$filename\`: $REPO_URL/$file" >> "<span class="math-inline">TEMP\_LIST"
+file\_count\=</span>((file_count + 1))
           done
 
           # 2. Check if list is empty
           if [ $file_count -eq 0 ]; then
-              echo "No .txt files found, not updating README."
-              echo "readme_updated=false" >> $GITHUB_OUTPUT
+              echo "No output files found, not updating README."
               exit 0
           fi
 
-          # 3. Ensure header exists, add markers if needed
-          if ! grep -q "$HEADER" "$README_FILE"; then
+          # 3. Ensure header & markers
+          if ! grep -Fq "$HEADER" "$README_FILE"; then
               echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"
-          elif ! grep -q "$START_MARKER" "$README_FILE"; then
-              sed -i "/^$HEADER\$/a $START_MARKER\n$END_MARKER" "$README_FILE"
+          elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
+              sed -i "/^<span class="math-inline">HEADER\\</span>/a $START_MARKER\n$END_MARKER" "$README_FILE"
           fi
 
-          # 5. Delete old content between markers (using awk for robustness)
+          # 4. Create temp file without old content
           awk -v start="$START_MARKER" -v end="$END_MARKER" '
-              $0 == start {print; in_block=1; next}
-              $0 == end   {print; in_block=0; next}
+              $0 == start {print; in_block=1}
+              $0 == end   {print; in_block=0}
               !in_block  {print}
-          ' "$README_FILE" > "$README_FILE.tmp" && mv "$README_FILE.tmp" "$README_FILE"
+          ' "$README_FILE" > "$README_FILE.tmp"
 
-          # 6. Insert new content after start marker
-          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE"
+          # 5. Insert new list into temp file
+          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
 
-          rm "$TEMP_LIST"
-          git add "$README_FILE"
-          echo "readme_updated=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push changes
-        # Only run if output_configs changed.
-        if: steps.check_changes.outputs.changed == 'true'
-        run: |
-          # Add *all* potential changes again, just to be sure
-          git add ${{ env.OUTPUT_DIR }} README.md
-          # Check if there are *actually* changes staged now
-          if ! git diff --staged --quiet; then
-            git commit -m "Automated config generation: update outputs"
-            git push
-          else
-             echo "No net changes to commit."
-          fi
+          # 6.
