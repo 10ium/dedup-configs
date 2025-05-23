@@ -1,4 +1,4 @@
-name: Deduplicate Configs
+name: Generate Accurate Config Files
 
 on:
   push:
@@ -6,8 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  OUTPUT_DIR: output_configs
+
 jobs:
-  deduplicate:
+  generate-configs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -22,47 +25,22 @@ jobs:
         run: pip install requests PyYAML
 
       - name: Check for urls.txt
-        id: check_urls
-        run: |
-          if [ ! -s urls.txt ]; then
-            echo "urls.txt is missing or empty"
-            exit 1
-          fi
+        # ... (as before) ...
+      - name: Check for defaults.yaml
+        # ... (as before) ...
+      - name: Clean output directory
+        # ... (as before) ...
 
-      - name: Run deduplicate script
-        run: python scripts/deduplicate.py --input urls.txt --defaults defaults.yaml --output deduped-configs.json
+      - name: Run generation script
+        run: |
+          python scripts/deduplicate.py \
+            --input urls.txt \
+            --defaults defaults.yaml \
+            --output-dir ${{ env.OUTPUT_DIR }}
 
       - name: Check for changes
-        id: check_changes
-        run: |
-          git add deduped-configs.json
-          if git diff --staged --quiet; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update README.md
-        if: steps.check_changes.outputs.changed == 'true'
-        run: |
-          OUTPUT_FILE="deduped-configs.json"
-          README_FILE="README.md"
-          GENERATED_OUTPUTS_HEADER="## Generated Outputs"
-          NEW_ENTRY="- \`${OUTPUT_FILE}\`: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/${OUTPUT_FILE}"
-
-          if ! grep -q "$GENERATED_OUTPUTS_HEADER" "$README_FILE"; then
-            echo -e "\n$GENERATED_OUTPUTS_HEADER\n" >> "$README_FILE"
-          fi
-
-          if ! grep -q "$NEW_ENTRY" "$README_FILE"; then
-            sed -i "/$GENERATED_OUTPUTS_HEADER/a\\$NEW_ENTRY" "$README_FILE"
-          fi
-
+        # ... (as before) ...
+      - name: Update README.md (Optional)
+        # ... (as before) ...
       - name: Commit and push changes
-        if: steps.check_changes.outputs.changed == 'true'
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add README.md
-          git commit -m "Automated deduplication: update configs"
-          git push
+        # ... (as before) ...

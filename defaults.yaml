@@ -5,6 +5,21 @@ shadowssr:
   obfs: plain
 trojan:
   sni: ""
+  allowInsecure: "0"
 vless:
   flow: ""
-  encryption: auto
+  encryption: none # VLESS usually doesn't have its own encryption layer
+  type: tcp
+  security: none
+vmess:
+  type: tcp
+  security: auto # Usually depends on transport
+  alterId: 0
+hy2:
+  sni: ""
+  insecure: "0"
+tuic:
+  sni: ""
+  congestion_control: bbr
+  udp_relay_mode: native
+  allowInsecure: "0"
