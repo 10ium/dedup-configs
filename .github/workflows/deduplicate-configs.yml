@@ -69,24 +69,24 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update README.md (DEBUG MODE)
+      - name: Update README.md
         id: update_readme
-        if: steps.check_changes.outputs.changed == 'true'
+        # Always run this step to ensure README is correct,
+        # but we will only commit if changes really happened.
         run: |
-          # --- <<< ADDING DEBUG MODE >>> ---
-          set -x
+          set -x # Keep debug mode for now
 
           README_FILE="README.md"
           OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
           HEADER="## Generated Outputs"
-          START_MARKER=""
-          END_MARKER=""
+          # --- <<< USING SIMPLER MARKERS >>> ---
+          START_MARKER="###_GENERATED_START_###"
+          END_MARKER="###_GENERATED_END_###"
           TEMP_LIST="generated_list.md"
           REPO_URL="${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}"
-          README_CHANGED=false
 
-          echo "--- Generating new list ---"
-          echo "" > "$TEMP_LIST" # Clear or create file
+          # 1. Generate new list
+          echo "" > "$TEMP_LIST"
           file_count=0
           if [ -d "$OUTPUT_DIR" ]; then
             for file in $(find "$OUTPUT_DIR" -type f | sort); do
@@ -96,58 +96,49 @@ jobs:
             done
           fi
 
-          echo "--- Checking file count ---"
-          if [ $file_count -eq 0 ]; then
-              echo "No output files found, not updating README."
-              exit 0
-          fi
-
-          echo "--- Ensuring README exists ---"
+          # 2. Ensure README exists & has header/markers
           touch "$README_FILE"
-
-          echo "--- Ensuring header & markers ---"
           if ! grep -Fq "$HEADER" "$README_FILE"; then
-              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
+              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"
           elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
-              # Using a simpler sed, ensured no slashes in vars
-              sed -i "/^## Generated Outputs\$/a $START_MARKER\n$END_MARKER" "$README_FILE"; README_CHANGED=true
+              sed -i "/^## Generated Outputs\$/a $START_MARKER\n$END_MARKER" "$README_FILE"
           fi
 
-          echo "--- Defining AWK script ---"
+          # 3. Define AWK script for deletion
           AWK_DELETE_SCRIPT='
           BEGIN { in_block=0 }
           $0 == end_marker   { print; in_block=0; next }
           $0 == start_marker { print; in_block=1; next }
           !in_block { print }
           '
-          echo "--- Running AWK ---"
+          # Run AWK, use temp file
           awk -v start="$START_MARKER" -v end="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
 
-          echo "--- Running SED to insert ---"
-          # Using a very simple sed, no special chars in START_MARKER
-          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
+          # 4. Insert new list into temp file (only if files exist)
+          if [ $file_count -gt 0 ]; then
+              # Use a safe sed command - using # as delimiter
+              sed -i "\#$START_MARKER#r $TEMP_LIST" "$README_FILE.tmp"
+          fi
 
-          echo "--- Checking for changes and moving file ---"
+          # 5. Replace original file if changed
           if ! cmp -s "$README_FILE" "$README_FILE.tmp"; then
               mv "$README_FILE.tmp" "$README_FILE"
-              README_CHANGED=true
+              echo "README.md updated."
+              git add "$README_FILE"
           else
               rm "$README_FILE.tmp"
+              echo "README.md already up-to-date."
           fi
 
           rm -f "$TEMP_LIST"
 
-          echo "--- Staging README if changed ---"
-          if [ "$README_CHANGED" = true ] ; then
-              git add "$README_FILE"
-          fi
-          echo "--- Finished README update ---"
 
       - name: Commit and push changes
-        if: steps.check_changes.outputs.changed == 'true'
         run: |
-          set -x # Add debug here too
+          set -x
+          # Stage *all* changes again just in case
           git add ${{ env.OUTPUT_DIR }} README.md
+          # Check if there are *really* staged changes
           if ! git diff --staged --quiet; then
             git commit -m "Automated config generation: update outputs"
             git push
