@@ -6,6 +6,7 @@ on:
       - main
   workflow_dispatch:
 
+# مجوز لازم برای کامیت و پوش کردن به ریپازیتوری
 permissions:
   contents: write
 
@@ -61,17 +62,24 @@ jobs:
       - name: Check for changes & Stage Output Dir
         id: check_changes
         run: |
+          # Add only output dir first to see if script generated anything
           git add ${{ env.OUTPUT_DIR }}
-          if ! git diff --staged --quiet; then
+          # Check if anything was added/changed. Use --exit-code to set status.
+          git diff --staged --quiet --exit-code
+          if [ $? -ne 0 ]; then
+            echo "Changes found in output directory."
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "No changes in output directory."
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
+        # Continue even if no changes, so README can be checked/fixed if needed
+        continue-on-error: true # Might be needed if git diff fails when nothing is added
 
-      - name: Update README.md (If changes occurred)
+      - name: Update README.md (If changes occurred or markers need fixing)
         id: update_readme
-        if: steps.check_changes.outputs.changed == 'true'
+        # Always run this step to ensure README is correct, but only stage if changed.
+        # We will check if changes *actually* happened before committing.
         run: |
           README_FILE="README.md"
           OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
@@ -80,38 +88,69 @@ jobs:
           END_MARKER=""
           TEMP_LIST="generated_list.md"
           REPO_URL="${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}"
+          README_CHANGED=false
 
           # 1. Generate new list
           echo "" > "$TEMP_LIST" # Clear or create file
           file_count=0
-          for file in $(find "$OUTPUT_DIR" -type f | sort); do
-              filename=$(basename "$file")
-              # We now save all files found, not just .txt
-              echo "- \`$filename\`: $REPO_URL/$file" >> "<span class="math-inline">TEMP\_LIST"
-file\_count\=</span>((file_count + 1))
-          done
-
-          # 2. Check if list is empty
-          if [ $file_count -eq 0 ]; then
-              echo "No output files found, not updating README."
-              exit 0
+          # Find all *files* in the output directory and sort them.
+          if [ -d "$OUTPUT_DIR" ]; then # Check if dir exists
+            for file in $(find "$OUTPUT_DIR" -type f | sort); do
+                filename=$(basename "$file")
+                echo "- \`$filename\`: $REPO_URL/$file" >> "$TEMP_LIST"
+                file_count=$((file_count + 1))
+            done
           fi
+
+          # 2. Ensure README exists
+          touch "$README_FILE"
 
           # 3. Ensure header & markers
           if ! grep -Fq "$HEADER" "$README_FILE"; then
-              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"
+              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
           elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
-              sed -i "/^<span class="math-inline">HEADER\\</span>/a $START_MARKER\n$END_MARKER" "$README_FILE"
+              sed -i "/^$HEADER\$/a $START_MARKER\n$END_MARKER" "$README_FILE"; README_CHANGED=true
           fi
 
-          # 4. Create temp file without old content
-          awk -v start="$START_MARKER" -v end="$END_MARKER" '
-              $0 == start {print; in_block=1}
-              $0 == end   {print; in_block=0}
-              !in_block  {print}
-          ' "$README_FILE" > "$README_FILE.tmp"
+          # 4. Define AWK script (safer way)
+          AWK_DELETE_SCRIPT='
+          BEGIN { in_block=0 }
+          $0 == end_marker   { print; in_block=0; next }
+          $0 == start_marker { print; in_block=1; next }
+          !in_block { print }
+          '
+          # Run AWK, use temp file
+          awk -v start="$START_MARKER" -v end="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
 
-          # 5. Insert new list into temp file
-          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
+          # 5. Insert new list into temp file (only if files exist)
+          if [ $file_count -gt 0 ]; then
+              sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
+          fi
 
-          # 6.
+          # 6. Check if README.md has changed *before* overwriting
+          if ! cmp -s "$README_FILE" "$README_FILE.tmp"; then
+              mv "$README_FILE.tmp" "$README_FILE"
+              README_CHANGED=true
+          else
+              rm "$README_FILE.tmp"
+          fi
+
+          rm -f "$TEMP_LIST"
+
+          # Only add README if it actually changed
+          if [ "$README_CHANGED" = true ] ; then
+              git add "$README_FILE"
+          fi
+
+      - name: Commit and push changes
+        # Run if EITHER output_configs changed OR README changed (we check staged files)
+        run: |
+          # Add all potential changes (again) before final check
+          git add ${{ env.OUTPUT_DIR }} README.md
+          # Check if there are *actually* changes staged now
+          if ! git diff --staged --quiet; then
+            git commit -m "Automated config generation: update outputs"
+            git push
+          else
+             echo "No net changes to commit."
+          fi
