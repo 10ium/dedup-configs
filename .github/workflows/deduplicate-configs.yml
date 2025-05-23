@@ -6,9 +6,8 @@ on:
       - main
   workflow_dispatch:
 
-# --- <<<< این بخش بسیار مهم است >>>> ---
 permissions:
-  contents: write # به گردش کار اجازه می‌دهد محتوا را بنویسد (کامیت و پوش کند)
+  contents: write
 
 env:
   OUTPUT_DIR: output_configs
@@ -29,7 +28,6 @@ jobs:
         run: pip install requests PyYAML
 
       - name: Check for urls.txt
-        id: check_urls
         run: |
           if [ ! -s urls.txt ]; then
             echo "urls.txt is missing or empty"
@@ -39,8 +37,8 @@ jobs:
       - name: Check for defaults.yaml
         run: |
           if [ ! -f defaults.yaml ]; then
-            echo "defaults.yaml is missing, proceeding without it (script might fail)."
-            # exit 1 # اگر می‌خواهید حتما وجود داشته باشد، این خط را فعال کنید
+            echo "defaults.yaml is missing."
+            # exit 1 # Uncomment to fail if defaults.yaml is missing
           fi
 
       - name: Clean output directory
@@ -60,9 +58,10 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-      - name: Check for changes & Stage
+      - name: Check for changes & Stage Output Dir
         id: check_changes
         run: |
+          # Add only output dir first to see if script generated anything
           git add ${{ env.OUTPUT_DIR }}
           if ! git diff --staged --quiet; then
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -71,35 +70,65 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update README.md and Stage (If changes occurred)
+      - name: Update README.md (If changes occurred)
+        id: update_readme
         if: steps.check_changes.outputs.changed == 'true'
         run: |
           README_FILE="README.md"
-          GENERATED_OUTPUTS_HEADER="## Generated Outputs"
-          DIR_LINK_IDENTIFIER="Individual URL outputs"
-          NEW_DIR_ENTRY="- \`${{ env.OUTPUT_DIR }}\` (${DIR_LINK_IDENTIFIER}): ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}/${{ env.OUTPUT_DIR }}"
+          OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
+          HEADER="## Generated Outputs"
+          START_MARKER=""
+          END_MARKER=""
+          TEMP_LIST="generated_list.md"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}"
 
-          # Create header if it doesn't exist
-          if ! grep -q "$GENERATED_OUTPUTS_HEADER" "$README_FILE"; then
-            echo -e "\n$GENERATED_OUTPUTS_HEADER\n" >> "$README_FILE"
+          # 1. Generate new list
+          echo "" > "$TEMP_LIST" # Clear or create file
+          file_count=0
+          for file in $(find "$OUTPUT_DIR" -type f -name "*.txt" | sort); do
+              filename=$(basename "$file")
+              echo "- \`$filename\`: $REPO_URL/$file" >> "$TEMP_LIST"
+              file_count=$((file_count + 1))
+          done
+
+          # 2. Check if list is empty
+          if [ $file_count -eq 0 ]; then
+              echo "No .txt files found, not updating README."
+              echo "readme_updated=false" >> $GITHUB_OUTPUT
+              exit 0
           fi
 
-          # Remove old line (if exists) then add new one
-          sed -i "\#${DIR_LINK_IDENTIFIER}#d" "$README_FILE"
-          sed -i "/$GENERATED_OUTPUTS_HEADER/a\\$NEW_DIR_ENTRY" "$README_FILE"
-          git add README.md
+          # 3. Ensure header exists, add markers if needed
+          if ! grep -q "$HEADER" "$README_FILE"; then
+              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"
+          elif ! grep -q "$START_MARKER" "$README_FILE"; then
+              sed -i "/^$HEADER\$/a $START_MARKER\n$END_MARKER" "$README_FILE"
+          fi
 
-      - name: Commit and push changes (If changes occurred)
-        # We run this if the *initial* check found changes.
-        # It will only commit if files (output_dir or README) are actually staged.
+          # 5. Delete old content between markers (using awk for robustness)
+          awk -v start="$START_MARKER" -v end="$END_MARKER" '
+              $0 == start {print; in_block=1; next}
+              $0 == end   {print; in_block=0; next}
+              !in_block  {print}
+          ' "$README_FILE" > "$README_FILE.tmp" && mv "$README_FILE.tmp" "$README_FILE"
+
+          # 6. Insert new content after start marker
+          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE"
+
+          rm "$TEMP_LIST"
+          git add "$README_FILE"
+          echo "readme_updated=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push changes
+        # Only run if output_configs changed.
         if: steps.check_changes.outputs.changed == 'true'
         run: |
-          # Add all potential changes again to be absolutely sure
+          # Add *all* potential changes again, just to be sure
           git add ${{ env.OUTPUT_DIR }} README.md
           # Check if there are *actually* changes staged now
           if ! git diff --staged --quiet; then
-            git commit -m "Automated config generation: smart deduplication"
+            git commit -m "Automated config generation: update outputs"
             git push
           else
-             echo "No net changes to commit (maybe only README existed, or an error occurred)."
+             echo "No net changes to commit."
           fi

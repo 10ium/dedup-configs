@@ -8,12 +8,12 @@ trojan:
   allowInsecure: "0"
 vless:
   flow: ""
-  encryption: none # VLESS usually doesn't have its own encryption layer
+  encryption: none
   type: tcp
   security: none
 vmess:
   type: tcp
-  security: auto # Usually depends on transport
+  security: auto
   alterId: 0
 hy2:
   sni: ""
