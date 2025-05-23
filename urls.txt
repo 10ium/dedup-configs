@@ -1,2 +1,10 @@
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Canada.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/France.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Germany.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Iran.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Japan.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Russia.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Namibia.txt
+https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/Netherlands.txt
 https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/USA.txt
 https://raw.githubusercontent.com/10ium/ScrapeAndCategorize/refs/heads/main/output_configs/UK.txt
