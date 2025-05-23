@@ -8,11 +8,14 @@ import json
 import re
 from typing import Optional, List, Dict, Any, Union
 from urllib.parse import urlparse, parse_qs, unquote, quote
+from hashlib import sha256
 
 import requests
 import yaml
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ... بقیه کد ...
 
 # --- توابع دانلود و دیکود ---
 def download_url(url: str, retries: int = 3, timeout: int = 10) -> Optional[str]:
