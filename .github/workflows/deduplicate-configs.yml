@@ -69,21 +69,20 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update README.md
+      - name: Update README.md (If changes occurred)
         id: update_readme
-        # Always run this step to ensure README is correct,
-        # but we will only commit if changes really happened.
+        if: steps.check_changes.outputs.changed == 'true'
         run: |
-          set -x # Keep debug mode for now
+          set -x # Keep debug mode one last time!
 
           README_FILE="README.md"
           OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
           HEADER="## Generated Outputs"
-          # --- <<< USING SIMPLER MARKERS >>> ---
           START_MARKER="###_GENERATED_START_###"
           END_MARKER="###_GENERATED_END_###"
           TEMP_LIST="generated_list.md"
           REPO_URL="${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}"
+          README_CHANGED=false
 
           # 1. Generate new list
           echo "" > "$TEMP_LIST"
@@ -96,15 +95,21 @@ jobs:
             done
           fi
 
-          # 2. Ensure README exists & has header/markers
-          touch "$README_FILE"
-          if ! grep -Fq "$HEADER" "$README_FILE"; then
-              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"
-          elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
-              sed -i "/^## Generated Outputs\$/a $START_MARKER\n$END_MARKER" "$README_FILE"
+          # 2. Check if list is empty
+          if [ $file_count -eq 0 ]; then
+              echo "No output files found, not updating README."
+              exit 0
           fi
 
-          # 3. Define AWK script for deletion
+          # 3. Ensure README exists & has header/markers
+          touch "$README_FILE"
+          if ! grep -Fq "$HEADER" "$README_FILE"; then
+              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
+          elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
+              sed -i "/^## Generated Outputs\$/a $START_MARKER\n$END_MARKER" "$README_FILE"; README_CHANGED=true
+          fi
+
+          # 4. Define AWK script for deletion
           AWK_DELETE_SCRIPT='
           BEGIN { in_block=0 }
           $0 == end_marker   { print; in_block=0; next }
@@ -114,31 +119,29 @@ jobs:
           # Run AWK, use temp file
           awk -v start="$START_MARKER" -v end="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
 
-          # 4. Insert new list into temp file (only if files exist)
-          if [ $file_count -gt 0 ]; then
-              # Use a safe sed command - using # as delimiter
-              sed -i "\#$START_MARKER#r $TEMP_LIST" "$README_FILE.tmp"
-          fi
+          # --- <<< THE ONLY REAL CHANGE IS HERE >>> ---
+          # 5. Insert new list into temp file (Using / as delimiter - SAFE)
+          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
 
-          # 5. Replace original file if changed
+          # 6. Replace original file if changed
           if ! cmp -s "$README_FILE" "$README_FILE.tmp"; then
               mv "$README_FILE.tmp" "$README_FILE"
-              echo "README.md updated."
-              git add "$README_FILE"
+              README_CHANGED=true
           else
               rm "$README_FILE.tmp"
-              echo "README.md already up-to-date."
           fi
 
           rm -f "$TEMP_LIST"
 
+          # Only add README if it actually changed
+          if [ "$README_CHANGED" = true ] ; then
+              git add "$README_FILE"
+          fi
 
       - name: Commit and push changes
         run: |
           set -x
-          # Stage *all* changes again just in case
           git add ${{ env.OUTPUT_DIR }} README.md
-          # Check if there are *really* staged changes
           if ! git diff --staged --quiet; then
             git commit -m "Automated config generation: update outputs"
             git push
