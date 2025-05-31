@@ -1,77 +1,4 @@
-name: Generate Accurate Config Files
-
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'
-
-permissions:
-  contents: write
-
-env:
-  OUTPUT_DIR: output_configs
-
-jobs:
-  generate-configs:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: pip install requests PyYAML
-
-      - name: Check for urls.txt
-        run: |
-          if [ ! -s urls.txt ]; then
-            echo "urls.txt is missing or empty"
-            exit 1
-          fi
-
-      - name: Check for defaults.yaml
-        run: |
-          if [ ! -f defaults.yaml ]; then
-            echo "defaults.yaml is missing."
-          fi
-
-      - name: Clean output directory
-        run: |
-          rm -rf ${{ env.OUTPUT_DIR }}
-          mkdir -p ${{ env.OUTPUT_DIR }}
-
-      - name: Run generation script
-        run: |
-          python scripts/deduplicate.py \
-            --input urls.txt \
-            --defaults defaults.yaml \
-            --output-dir ${{ env.OUTPUT_DIR }}
-
-      - name: Configure Git
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-      - name: Check for changes & Stage Output Dir
-        id: check_changes
-        run: |
-          git add ${{ env.OUTPUT_DIR }}
-          if git diff --staged --quiet; then
-            echo "No changes in output directory."
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changes found in output directory."
-            echo "changed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Update README.md (If changes occurred)
+- name: Update README.md (If changes occurred)
         id: update_readme
         if: steps.check_changes.outputs.changed == 'true'
         run: |
@@ -86,67 +13,87 @@ jobs:
           REPO_URL="${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}"
           README_CHANGED=false
 
-          # 1. Generate new list
+          # Function to get country flag emoji
+          get_flag() {
+            country_code=$(echo "$1" | cut -d'.' -f1) # Extracts "Canada" from "Canada.txt"
+            case "$country_code" in
+              "Canada") echo "🇨🇦" ;;
+              "France") echo "🇫🇷" ;;
+              "Germany") echo "🇩🇪" ;;
+              "Iran") echo "🇮🇷" ;;
+              "Japan") echo "🇯🇵" ;;
+              "Russia") echo "🇷🇺" ;;
+              "Namibia") echo "🇳🇦" ;;
+              "Netherlands") echo "🇳🇱" ;;
+              "USA") echo "🇺🇸" ;;
+              "UK") echo "🇬🇧" ;;
+              # Add more countries and their flags as needed
+              *) echo "🏳️" ;; # Default flag
+            esac
+          }
+
+          # 1. Generate new list with flags
           echo "" > "$TEMP_LIST"
           file_count=0
           if [ -d "$OUTPUT_DIR" ]; then
-            for file in $(find "$OUTPUT_DIR" -type f | sort); do
-                filename=$(basename "$file")
-                echo "- \`$filename\`: $REPO_URL/$file" >> "$TEMP_LIST"
-                file_count=$((file_count + 1))
+            for file_path in $(find "$OUTPUT_DIR" -type f | sort); do
+              filename=$(basename "$file_path")
+              flag=$(get_flag "$filename")
+              echo "- $flag \`$filename\`: $REPO_URL/$file_path" >> "$TEMP_LIST"
+              file_count=$((file_count + 1))
             done
           fi
 
           # 2. Check if list is empty
           if [ $file_count -eq 0 ]; then
-              echo "No output files found, not updating README."
-              exit 0
+            echo "No output files found, not updating README."
+            # If no files, we might want to clear the existing list in README
+            # For now, exiting, but you could adapt to clear the section if needed.
           fi
 
           # 3. Ensure README exists & has header/markers
           touch "$README_FILE"
           if ! grep -Fq "$HEADER" "$README_FILE"; then
-              echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
+            echo -e "\n$HEADER\n$START_MARKER\n$END_MARKER\n" >> "$README_FILE"; README_CHANGED=true
           elif ! grep -Fq "$START_MARKER" "$README_FILE"; then
-              sed -i "/^## Generated Outputs\$/a $START_MARKER\n$END_MARKER" "$README_FILE"; README_CHANGED=true
+            # Header exists, but markers are missing below it. Add them.
+            # Using awk to insert after header to be more robust
+            awk -v h="$HEADER" -v sm="$START_MARKER" -v em="$END_MARKER" '
+              1; # print current line
+              $0 == h { print sm; print em; }
+            ' "$README_FILE" > "$README_FILE.new" && mv "$README_FILE.new" "$README_FILE"
+            README_CHANGED=true
           fi
 
-          # 4. Define AWK script for deletion
+          # 4. Define AWK script for deletion (Corrected variable names)
+          # This script prints lines outside the block, and the start/end markers themselves.
+          # It effectively deletes what's *between* start_var and end_var.
           AWK_DELETE_SCRIPT='
           BEGIN { in_block=0 }
-          $0 == end_marker   { print; in_block=0; next }
-          $0 == start_marker { print; in_block=1; next }
+          $0 == end_var   { print; in_block=0; next }
+          $0 == start_var { print; in_block=1; next }
           !in_block { print }
           '
-          # Run AWK, use temp file
-          awk -v start="$START_MARKER" -v end="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
+          # Run AWK, use temp file. Pass variables correctly.
+          awk -v start_var="$START_MARKER" -v end_var="$END_MARKER" "$AWK_DELETE_SCRIPT" "$README_FILE" > "$README_FILE.tmp"
 
-          # --- <<< THE ONLY REAL CHANGE IS HERE >>> ---
           # 5. Insert new list into temp file (Using / as delimiter - SAFE)
-          sed -i "/$START_MARKER/r $TEMP_LIST" "$README_FILE.tmp"
-
+          # The new list is inserted *after* the START_MARKER line.
+          if [ $file_count -gt 0 ]; then
+            sed -i "/$(echo "$START_MARKER" | sed 's/[&/\]/\\&/g')/r $TEMP_LIST" "$README_FILE.tmp"
+          fi
+          
           # 6. Replace original file if changed
           if ! cmp -s "$README_FILE" "$README_FILE.tmp"; then
-              mv "$README_FILE.tmp" "$README_FILE"
-              README_CHANGED=true
+            mv "$README_FILE.tmp" "$README_FILE"
+            README_CHANGED=true
           else
-              rm "$README_FILE.tmp"
+            rm "$README_FILE.tmp"
           fi
 
           rm -f "$TEMP_LIST"
 
           # Only add README if it actually changed
           if [ "$README_CHANGED" = true ] ; then
-              git add "$README_FILE"
-          fi
-
-      - name: Commit and push changes
-        run: |
-          set -x
-          git add ${{ env.OUTPUT_DIR }} README.md
-          if ! git diff --staged --quiet; then
-            git commit -m "Automated config generation: update outputs"
-            git push
-          else
-             echo "No net changes to commit."
+            git add "$README_FILE"
           fi
