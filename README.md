@@ -2,6 +2,7 @@
 ## Generated Outputs
 ###_GENERATED_START_###
 
+- 🇨🇦 `Canada.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Canada.txt
 - 🇫🇷 `France.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/France.txt
 - 🇩🇪 `Germany.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Germany.txt
 - 🇮🇷 `Iran.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Iran.txt
