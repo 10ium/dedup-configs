@@ -7,6 +7,7 @@
 - 🇩🇪 `Germany.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Germany.txt
 - 🇮🇷 `Iran.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Iran.txt
 - 🇯🇵 `Japan.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Japan.txt
+- 🇳🇦 `Namibia.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Namibia.txt
 - 🇳🇱 `Netherlands.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Netherlands.txt
 - 🇷🇺 `Russia.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/Russia.txt
 - 🇬🇧 `UK.txt`: https://github.com/10ium/dedup-configs/raw/main/output_configs/UK.txt
