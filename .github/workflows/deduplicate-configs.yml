@@ -77,7 +77,6 @@ jobs:
         id: update_readme
         if: steps.check_changes.outputs.changed == 'true'
         run: |
-          set -x # Enable debug output
 
           README_FILE="README.md"
           OUTPUT_DIR="${{ env.OUTPUT_DIR }}"
@@ -181,7 +180,6 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          set -x # Enable debug output
           # Stage both OUTPUT_DIR (already done if changed) and README.md (done if changed by previous step)
           # This 'git add' acts as a final check to ensure everything intended is staged.
           git add ${{ env.OUTPUT_DIR }} README.md
